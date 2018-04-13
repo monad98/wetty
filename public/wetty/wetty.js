@@ -1,5 +1,5 @@
 var term;
-var socket = io(location.origin, {path: '/wetty/socket.io'})
+var socket = new WebSocket("ws://localhost:11228/terminal");
 var buf = '';
 
 function Wetty(argv) {
@@ -10,21 +10,26 @@ function Wetty(argv) {
 
 Wetty.prototype.run = function() {
     this.io = this.argv_.io.push();
-
     this.io.onVTKeystroke = this.sendString_.bind(this);
     this.io.sendString = this.sendString_.bind(this);
     this.io.onTerminalResize = this.onTerminalResize.bind(this);
 }
 
 Wetty.prototype.sendString_ = function(str) {
-    socket.emit('input', str);
+    socket.send(JSON.stringify({
+        type: 'input',
+        msg: str
+    }));
 };
 
 Wetty.prototype.onTerminalResize = function(col, row) {
-    socket.emit('resize', { col: col, row: row });
+    socket.send(JSON.stringify({
+        type: "resize",
+        msg: `${col}:${row}`
+    }));
 };
 
-socket.on('connect', function() {
+socket.onopen= function() {
     lib.init(function() {
         hterm.defaultStorage = new lib.Storage.Local();
         term = new hterm.Terminal();
@@ -38,10 +43,10 @@ socket.on('connect', function() {
         term.prefs_.set('use-default-window-copy', true);
 
         term.runCommandClass(Wetty, document.location.hash.substr(1));
-        socket.emit('resize', {
-            col: term.screenSize.width,
-            row: term.screenSize.height
-        });
+        socket.send(JSON.stringify({
+            type: "resize",
+            msg: `${term.screenSize.width}:${term.screenSize.height}`
+        }));
 
         if (buf && buf != '')
         {
@@ -49,16 +54,18 @@ socket.on('connect', function() {
             buf = '';
         }
     });
-});
+};
 
-socket.on('output', function(data) {
+socket.onmessage = function(msgEvent) {
+    console.log(msgEvent.data);
     if (!term) {
-        buf += data;
+        
+        buf += msgEvent.data;
         return;
     }
-    term.io.writeUTF16(data);
-});
+    term.io.writeUTF16(msgEvent.data);
+};
 
-socket.on('disconnect', function() {
+socket.onclose = function() {
     console.log("Socket.io connection closed");
-});
+};
